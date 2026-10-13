@@ -26,6 +26,8 @@ winget install --id yt-dlp.yt-dlp -e
 winget install --id Gyan.FFmpeg.Shared -e
 ```
 
+In Windows PowerShell, use `npm.cmd start`, `npm.cmd run doctor`, or `npm.cmd test` if your execution policy blocks the `npm.ps1` shim.
+
 ### macOS
 
 Install Homebrew if it is not already installed, then run:

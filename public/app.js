@@ -139,7 +139,7 @@ const updateRow = (index) => {
   const rowElement = document.getElementById(`r${index}`);
   if (!rowElement) return;
 
-  const [checkbox, info, select, link, status] = rowElement.children;
+  const [checkbox, info, select, link] = rowElement.children;
   const candidate = row.c[row.k];
   const matchInfo = info.children[2];
 
@@ -328,14 +328,15 @@ ui.find.addEventListener('click', async () => {
     });
 
     const weakMatches = state.rows.filter((row) => !row.on).length;
-    setMessage(
-      state.opt.mode === 'auto'
-        ? 'Downloading automatically...'
-        : `Check the matches below${weakMatches ? ` (${weakMatches} need a look)` : ''}, then press Download.`
-    );
-
     if (state.opt.mode === 'auto') {
-      await downloadSelected();
+      if (state.rows.some((row) => row.on)) {
+        setMessage('Downloading automatically...');
+        await downloadSelected();
+      } else {
+        setMessage('No confident matches were found. Review the results and select songs to download.');
+      }
+    } else {
+      setMessage(`Check the matches below${weakMatches ? ` (${weakMatches} need a look)` : ''}, then press Download.`);
     }
   } catch (error) {
     const isAbort = error.name === 'AbortError';
