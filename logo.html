@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mountain Parallax Scene</title>
+  <style>
+    /* Reset default spacing and set full height */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(to bottom, #1a1c29, #3a4161);
+    }
+
+    /* Container holding the scene */
+    .scene-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* 1. TEXT LAYER: Fixed in place using Absolute Centering */
+    .locked-text {
+      position: absolute;
+      top: 45%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10; /* Keeps text above background elements */
+      color: #ffffff;
+      text-align: center;
+      pointer-events: none; /* Prevents text from blocking clicks */
+    }
+
+    .locked-text h1 {
+      font-size: 3.5rem;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+
+    .locked-text p {
+      font-size: 1.2rem;
+      opacity: 0.8;
+      margin-top: 8px;
+    }
+
+    /* 2. MOUNTAIN LAYER: Animated independently */
+    .mountain-layer {
+      position: absolute;
+      bottom: -50px; /* Slight offset for smooth motion boundary */
+      left: 0;
+      width: 100%;
+      height: 60vh;
+      z-index: 5;
+      
+      /* Smooth CSS Keyframe animation */
+      animation: floatMountain 4s ease-in-out infinite alternate;
+    }
+
+    /* SVG Styling for the Mountain */
+    .mountain-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Animation logic: Moves ONLY the mountain container */
+    @keyframes floatMountain {
+      0% {
+        transform: translateY(0px);
+      }
+      100% {
+        transform: translateY(-45px); /* Adjust vertical travel distance here */
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="scene-container">
+    
+    <!-- Text stays strictly in place -->
+    <div class="locked-text">
+      <h1>TELOS</h1>
+      <p>Static Text • Floating Mountain</p>
+    </div>
+
+    <!-- Mountain moves continuously -->
+    <div class="mountain-layer">
+      <svg class="mountain-svg" viewBox="0 0 1200 500" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Back Peaks -->
+        <polygon points="150,500 350,200 550,500" fill="#2d3250" />
+        <polygon points="650,500 850,150 1050,500" fill="#2d3250" />
+        
+        <!-- Main Foreground Mountain -->
+        <polygon points="0,500 450,100 900,500" fill="#424769" />
+        <polygon points="450,100 450,500 900,500" fill="#2d3250" opacity="0.3" /> <!-- Ridge shadow -->
+        
+        <!-- Additional Front Right Peak -->
+        <polygon points="700,500 950,250 1200,500" fill="#676f9d" />
+      </svg>
+    </div>
+
+  </div>
+
+</body>
+</html>

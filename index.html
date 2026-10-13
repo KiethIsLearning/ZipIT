@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playlist → ZIP</title>
+<link rel="stylesheet" href="./styles.css">
+
+</head>
+<body>
+<div class="glow"></div>
+<main>
+  <header>
+    <div class="disc" id="disc"></div>
+    <div><h1>Playlist<span>→</span>ZIP</h1><p>Paste any music link. Songs are found on YouTube or SoundCloud.</p></div>
+  </header>
+  <p class="err" id="banner" hidden></p>
+
+  <section class="panel">
+    <textarea id="in" placeholder="Paste a Spotify, Deezer, Apple Music, YouTube or SoundCloud link, or type “Artist - Title”, one per line"></textarea>
+    <div class="opts">
+      <div class="grp"><span>Find on</span><div class="seg" id="site"><button data-v="youtube" class="on">YouTube</button><button data-v="soundcloud">SoundCloud</button></div></div>
+      <div class="grp"><span>Format</span><div class="seg" id="fmt"><button data-v="mp3" class="on">MP3</button><button data-v="flac">FLAC</button></div></div>
+      <div class="grp"><span>Mode</span><div class="seg" id="mode"><button data-v="review" class="on">Review first</button><button data-v="auto">Auto</button></div></div>
+      <button class="go" id="find">Find songs</button>
+    </div>
+    <p id="hint" hidden>FLAC is lossless, but it is converted from YouTube/SoundCloud audio, so files get bigger without sounding better.</p>
+    <p id="msg"></p>
+  </section>
+
+  <section class="panel" id="res" hidden>
+    <div class="bar"><input id="name" aria-label="Playlist name (also used for the folder and ZIP)"><span id="cnt"></span><a id="all">all</a><a id="none">none</a></div>
+    <ul id="rows"></ul>
+  </section>
+</main>
+
+<div id="dock" class="dock" hidden>
+  <span id="sel"></span>
+  <progress id="bar" value="0" max="1"></progress>
+  <button class="ghost" id="stop" hidden>Cancel</button>
+  <a class="zip" id="zip" href="#" download hidden></a>
+  <button class="go" id="dl">Download selected</button>
+</div>
+
+<script src="./app.js" defer></script>
+
+</body>
+</html>
