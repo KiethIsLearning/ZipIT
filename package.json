@@ -1,0 +1,14 @@
+{
+  "name": "playlist-to-zip",
+  "version": "1.1.0",
+  "private": true,
+  "description": "A local playlist matcher and audio ZIP builder.",
+  "scripts": {
+    "start": "node server/index.js",
+    "doctor": "node scripts/doctor.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

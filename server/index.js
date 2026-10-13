@@ -273,7 +273,7 @@ async function dl(b, { kids, out, dead }) {
 // ---------- ZIP (store-only streaming writer) ----------
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 async function zipFolder(dir, res) {
-  const files = fs.readdirSync(dir).filter(f => TYPES[path.extname(f)] && fs.lstatSync(path.join(dir, f)).isFile()).sort();
+  const files = fs.readdirSync(dir).filter(f => !f.startsWith('.') && TYPES[path.extname(f)] && fs.lstatSync(path.join(dir, f)).isFile()).sort();
   if (!files.length) throw Error('No completed songs are available to ZIP.');
   if (files.length > 65535) throw Error('This ZIP format supports at most 65,535 files.');
   let expectedSize = 22 + files.length * 92;
