@@ -104,14 +104,23 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  const runtimeTooOld = Number(process.versions.node.split('.')[0]) < 18;
   let missing = printReport();
-  if (!missing.length) {
+  if (!missing.length && !runtimeTooOld) {
     console.log('\nAll required tools are ready.');
+    return;
+  }
+  if (runtimeTooOld && !missing.some(tool => tool.name === 'Node.js')) {
+    console.error(`\nThis setup check is still running in Node.js ${process.versions.node}. Close this window and run it again.`);
+    process.exitCode = 1;
     return;
   }
   await installMissing(missing);
   missing = printReport();
-  if (missing.length) {
+  if (runtimeTooOld) {
+    console.error(`\nThis setup check is still running in Node.js ${process.versions.node}. Close this window and run it again after updating Node.js.`);
+    process.exitCode = 1;
+  } else if (missing.length) {
     console.error('\nSetup is incomplete. Install the missing tools above, then run this check again.');
     process.exitCode = 1;
   } else {

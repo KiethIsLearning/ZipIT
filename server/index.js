@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /* Playlist -> ZIP  (local backend, no npm packages)
    Needs: Node 18+, yt-dlp and ffmpeg on your PATH.
-   Run:   node server.js   then open http://127.0.0.1:3000
+   Run:   node server/index.js   then open http://127.0.0.1:3000
    Only download music you have the right to. */
-const http = require('http'), fs = require('fs'), path = require('path'), { spawn, spawnSync } = require('child_process');
+const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), { spawn, spawnSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const HOST = '127.0.0.1', PORT = Number(process.env.PORT || 3000), DL = path.resolve(process.env.DOWNLOAD_DIR || path.join(ROOT, 'downloads'));
 const PUBLIC = path.join(ROOT, 'public');
@@ -11,8 +11,11 @@ const ORIGINS = [`http://${HOST}:${PORT}`];
 const have = (c, a) => { const r = spawnSync(c, a, { stdio: 'ignore', timeout: 5000 }); return !r.error && r.status === 0; };
 const clean = s => String(s ?? '').replace(/[\x00-\x1f\u007f\u00a0]/g, ' ').replace(/\s+/g, ' ').trim();
 const safe = s => {
-  const name = Array.from(clean(s).replace(/[<>:"/\\|?*%]/g, '').replace(/\s+/g, ' ').replace(/^[ .]+|[ .]+$/g, ''))
-    .slice(0, 80).join('').replace(/[ .]+$/g, '') || 'untitled';
+  const original = clean(s).replace(/[<>:"/\\|?*%]/g, ' ').replace(/\s+/g, ' ').replace(/^[ .]+|[ .]+$/g, '');
+  const characters = Array.from(original);
+  const suffix = characters.length > 80 ? `-${crypto.createHash('sha256').update(original).digest('hex').slice(0, 8)}` : '';
+  const name = (characters.length > 80 ? characters.slice(0, 80 - suffix.length).join('') : original)
+    .replace(/[ .]+$/g, '') + suffix || 'untitled';
   return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ? `_${name}` : name;
 };
 const TYPES = { '.mp3': 'audio/mpeg', '.flac': 'audio/flac' };
@@ -47,6 +50,20 @@ const validateUrl = (raw, domains = ALLOWED_HOSTS) => {
     throw Error('That link is not from a supported music source.');
   }
   return url;
+};
+const sourceType = raw => {
+  const host = validateUrl(raw).hostname.toLowerCase();
+  if (isHost(host, ['spotify.com'])) return 'spotify';
+  if (isHost(host, ['deezer.com'])) return 'deezer';
+  if (isHost(host, ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com', 'bandcamp.com', 'mixcloud.com'])) return 'direct';
+  return 'metadata';
+};
+const playlistEntryUrl = entry => {
+  if (typeof entry.webpage_url === 'string' && /^https:\/\//i.test(entry.webpage_url)) return entry.webpage_url;
+  if (typeof entry.original_url === 'string' && /^https:\/\//i.test(entry.original_url)) return entry.original_url;
+  if (typeof entry.url === 'string' && /^https:\/\//i.test(entry.url)) return entry.url;
+  if (/^youtube/i.test(entry.ie_key || '') && entry.id) return `https://www.youtube.com/watch?v=${encodeURIComponent(entry.id)}`;
+  return '';
 };
 const get = async (raw, asJson) => {
   const url = validateUrl(raw);
@@ -152,7 +169,10 @@ async function deezer(u) {
     list.push(d);
   } else {
     let next = `https://api.deezer.com/${t}/${id}/tracks?limit=100`;
+    const visited = new Set();
     while (next && list.length < MAX_TRACKS) {
+      if (visited.has(next)) throw Error('Deezer repeated a track-list page.');
+      visited.add(next);
       const page = await get(next, true);
       if (page.error) throw Error(page.error.message || 'Deezer could not read that playlist.');
       if (!Array.isArray(page.data)) throw Error('Deezer returned an invalid track list.');
@@ -167,11 +187,21 @@ async function direct(u, kids) {                  // YouTube, SoundCloud, Bandca
   const r = await yt(['-J', '--flat-playlist', '--playlist-end', String(MAX_TRACKS), '--no-warnings', u], kids);
   if (r.code) throw Error((r.err.trim().split('\n').pop() || 'Could not read that link').slice(0, 200));
   const j = JSON.parse(r.out);
-  return { name: j.title || 'Playlist', tracks: (j.entries || [j]).filter(e => e && (e.url || e.webpage_url)).map(e => {
-    const full = clean(e.title), i = full.indexOf(' - '), ch = clean(e.channel || e.uploader).replace(/ - Topic$/, '');
-    return { title: i > 0 ? full.slice(i + 3) : full, artist: i > 0 ? full.slice(0, i) : ch, duration: e.duration || null,
-      direct: { url: e.url || e.webpage_url, title: full, channel: ch, duration: e.duration || null, score: 0 } };
-  }) };
+  const tracks = [];
+  const entries = Array.isArray(j.entries) ? j.entries : [j];
+  for (const entry of entries.slice(0, MAX_TRACKS)) {
+    if (!entry) continue;
+    let url;
+    try { url = validateUrl(playlistEntryUrl(entry), DIRECT_HOSTS).href; } catch { continue; }
+    const full = clean(entry.title), i = full.indexOf(' - '), ch = clean(entry.channel || entry.uploader).replace(/ - Topic$/, '');
+    tracks.push({
+      title: i > 0 ? full.slice(i + 3) : full,
+      artist: i > 0 ? full.slice(0, i) : ch,
+      duration: entry.duration || null,
+      direct: { url, title: full, channel: ch, duration: entry.duration || null, score: 0 }
+    });
+  }
+  return { name: j.title || 'Playlist', tracks };
 }
 
 async function ld(u) {                            // best effort for Apple Music and other sites (page metadata)
@@ -189,10 +219,9 @@ async function resolve(input, kids) {
   const out = { name: '', tracks: [] };
   for (const raw of urls.slice(0, MAX_TRACKS)) {
     const url = validateUrl(raw.replace(/[),.;!?]+$/g, ''));
-    const h = url.hostname.toLowerCase();
-    const r = isHost(h, ['spotify.com']) ? await spotify(url.href) : isHost(h, ['deezer.com']) ? await deezer(url.href)
-      : isHost(h, ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com', 'bandcamp.com', 'mixcloud.com']) ? await direct(url.href, kids)
-      : await ld(url.href);
+    const type = sourceType(url.href);
+    const r = type === 'spotify' ? await spotify(url.href) : type === 'deezer' ? await deezer(url.href)
+      : type === 'direct' ? await direct(url.href, kids) : await ld(url.href);
     out.name = out.name || r.name;
     out.tracks.push(...r.tracks.slice(0, MAX_TRACKS - out.tracks.length));
     if (out.tracks.length >= MAX_TRACKS) break;
@@ -355,13 +384,15 @@ function startServer() {
   fs.mkdirSync(DL, { recursive: true });
   const server = http.createServer(async (req, res) => {
     if (req.headers.host !== `${HOST}:${PORT}`) { res.writeHead(403); return res.end(); }
+    if ((req.headers.origin && !ORIGINS.includes(req.headers.origin)) || req.headers['sec-fetch-site'] === 'cross-site') {
+      res.writeHead(403); return res.end();
+    }
     let url;
     try { url = new URL(req.url, `http://${HOST}:${PORT}`); }
     catch { res.writeHead(400); return res.end(); }
     const route = url.pathname;
     try {
       if (req.method === 'POST') {
-        if (req.headers.origin && !ORIGINS.includes(req.headers.origin)) { res.writeHead(403); return res.end(); }
         let body;
         try { body = JSON.parse(await readBody(req)); }
         catch (error) { return json(res, { error: error.message === 'Unexpected end of JSON input' ? 'Bad request' : error.message }, error.statusCode || 400); }
@@ -438,4 +469,4 @@ function startServer() {
 
 if (require.main === module) startServer();
 
-module.exports = { clean, safe, validateUrl, parseTrackLines, scoreCandidate, norm, zipFolder, startServer };
+module.exports = { clean, safe, validateUrl, sourceType, playlistEntryUrl, parseTrackLines, scoreCandidate, norm, zipFolder, startServer };

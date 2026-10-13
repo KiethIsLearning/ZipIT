@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { parseTrackLines, safe, scoreCandidate, validateUrl, zipFolder } = require('../server');
+const { parseTrackLines, playlistEntryUrl, safe, scoreCandidate, sourceType, validateUrl, zipFolder } = require('../server');
 
 test('parses song lines with punctuation and ignores comments and blank lines', () => {
   assert.deepEqual(parseTrackLines('\n# playlist\nBjörk - Jóga\nArtist - Title - Part 2\nUnknown title\n'), [
@@ -22,7 +22,13 @@ test('caps parsed playlist size at 1,000 tracks', () => {
 
 test('accepts only HTTPS links from supported, boundary-matched domains', () => {
   assert.equal(validateUrl('https://open.spotify.com/playlist/example').hostname, 'open.spotify.com');
+  assert.equal(sourceType('https://open.spotify.com/playlist/example'), 'spotify');
+  assert.equal(sourceType('https://m.youtube.com/playlist?list=example'), 'direct');
+  assert.equal(sourceType('https://music.apple.com/us/album/example'), 'metadata');
+  assert.equal(playlistEntryUrl({ webpage_url: 'https://www.youtube.com/watch?v=canonical', url: 'https://cdn.invalid/media' }), 'https://www.youtube.com/watch?v=canonical');
+  assert.equal(playlistEntryUrl({ ie_key: 'Youtube', id: 'video-id' }), 'https://www.youtube.com/watch?v=video-id');
   assert.throws(() => validateUrl('https://youtube.com.attacker.invalid/watch?v=x'));
+  assert.throws(() => sourceType('https://attacker.invalid/playlist'));
   assert.throws(() => validateUrl('http://youtube.com/watch?v=x'));
   assert.throws(() => validateUrl('https://user:pass@youtube.com/watch?v=x'));
   assert.throws(() => validateUrl('http://127.0.0.1:3000/'));
@@ -31,6 +37,7 @@ test('accepts only HTTPS links from supported, boundary-matched domains', () => 
 test('creates safe bounded file-name segments while retaining Unicode', () => {
   assert.equal(safe('../Björk: Jóga?*'), 'Björk Jóga');
   assert.equal(Array.from(safe('x'.repeat(500))).length, 80);
+  assert.notEqual(safe('x'.repeat(500) + 'a'), safe('x'.repeat(500) + 'b'));
   assert.equal(safe('...'), 'untitled');
   assert.equal(safe('CON'), '_CON');
 });
