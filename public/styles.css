@@ -405,3 +405,90 @@ progress::-moz-progress-bar {
   white-space: nowrap;
   border: 0;
 }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--b);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  main {
+    padding: 16px 10px 130px;
+  }
+
+  header {
+    gap: 10px;
+  }
+
+  h1 {
+    font-size: 21px;
+  }
+
+  .disc {
+    width: 40px;
+    height: 40px;
+  }
+
+  .panel {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .opts {
+    gap: 8px;
+  }
+
+  .grp {
+    flex: 1 1 auto;
+  }
+
+  .go {
+    min-height: 42px;
+  }
+
+  #find {
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+
+  li {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    gap: 4px 8px;
+  }
+
+  li select {
+    grid-column: 2;
+    max-width: 100%;
+  }
+
+  .ls {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  #dock {
+    bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 9px;
+  }
+
+  #sel {
+    flex: 1 1 auto;
+  }
+
+  progress {
+    flex: 1 1 100%;
+    order: 5;
+  }
+
+  .zip,
+  #dock .go,
+  #dock .ghost {
+    min-height: 40px;
+    padding: 9px 11px;
+  }
+}
