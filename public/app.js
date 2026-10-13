@@ -78,7 +78,11 @@ const initializeSegmentGroups = () => {
   document.querySelectorAll('.seg').forEach((group) => {
     const pick = (value) => {
       const selectedButton = [...group.children].find((button) => button.dataset.v === value) || group.children[0];
-      [...group.children].forEach((button) => button.classList.toggle('on', button === selectedButton));
+      [...group.children].forEach((button) => {
+        const selected = button === selectedButton;
+        button.classList.toggle('on', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
       state.opt[group.id] = selectedButton.dataset.v;
 
       if (group.id === 'fmt') {
@@ -98,6 +102,12 @@ const initializeSegmentGroups = () => {
 };
 
 const streamEvents = async (response, onEvent) => {
+  if (!response.ok) {
+    throw new Error(await response.text() || `Request failed with HTTP ${response.status}.`);
+  }
+  if (!response.body) {
+    throw new Error('The server did not return a progress stream.');
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -112,6 +122,7 @@ const streamEvents = async (response, onEvent) => {
 
     lines.filter(Boolean).forEach((line) => onEvent(JSON.parse(line)));
   }
+  if (buffer.trim()) onEvent(JSON.parse(buffer));
 };
 
 const updateSelectionInfo = () => {
@@ -128,13 +139,15 @@ const updateRow = (index) => {
   const rowElement = document.getElementById(`r${index}`);
   if (!rowElement) return;
 
-  const [checkbox, info, select, link, status] = rowElement.children;
+  const [checkbox, info, select, link] = rowElement.children;
   const candidate = row.c[row.k];
   const matchInfo = info.children[2];
 
   checkbox.checked = row.on;
   checkbox.disabled = !candidate;
-  matchInfo.textContent = candidate ? [candidate.title, candidate.channel, formatDuration(candidate.duration)].filter(Boolean).join(' · ') : 'No match found';
+  matchInfo.textContent = candidate
+    ? [candidate.title, candidate.channel, formatDuration(candidate.duration)].filter(Boolean).join(' · ')
+    : row.error || 'No match found';
   matchInfo.className = 'm' + (!candidate || candidate.score >= 100 ? ' warn' : '');
 
   if (row.c.length > 1 && !select.options.length) {
@@ -227,7 +240,10 @@ const setRowStatus = (rowId, status, message) => {
 
 const loadStatus = () => {
   fetch('/api/status')
-    .then((response) => response.json())
+    .then((response) => {
+      if (!response.ok) throw new Error(`Status check failed (HTTP ${response.status}).`);
+      return response.json();
+    })
     .then((status) => {
       const missing = [!status.ytdlp && 'yt-dlp', !status.ffmpeg && 'ffmpeg'].filter(Boolean);
       if (missing.length) {
@@ -235,7 +251,10 @@ const loadStatus = () => {
         ui.banner.textContent = `Missing on your PATH: ${missing.join(', ')}. Install it and restart the server.`;
       }
     })
-    .catch(() => {});
+    .catch((error) => {
+      ui.banner.hidden = false;
+      ui.banner.textContent = `Could not check required tools: ${error.message}`;
+    });
 };
 
 ui.in.addEventListener('keydown', (event) => {
@@ -287,7 +306,7 @@ ui.find.addEventListener('click', async () => {
     if (!response.ok) throw new Error(payload.error);
 
     state.name = payload.name || `Playlist ${new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '-')}`;
-    state.rows = payload.tracks.map((track) => ({ ...track, c: [], k: 0, on: false }));
+    state.rows = payload.tracks.map((track) => ({ ...track, c: [], k: 0, on: false, error: '' }));
     state.folder = '';
     state.saved = 0;
     renderRows();
@@ -296,24 +315,28 @@ ui.find.addEventListener('click', async () => {
 
     response = await post('/api/match', { tracks: payload.tracks, site: state.opt.site }, state.ctl.signal);
     await streamEvents(response, (event) => {
-      if (event.type === 'error') throw new Error(event.msg);
       if (event.i != null) {
         const row = state.rows[event.i];
+        if (!row) return;
         row.c = event.c;
+        row.error = event.error || '';
         row.on = !!event.c[0] && event.c[0].score < 100;
         updateRow(event.i);
+      } else if (event.type === 'error') {
+        throw new Error(event.msg);
       }
     });
 
     const weakMatches = state.rows.filter((row) => !row.on).length;
-    setMessage(
-      state.opt.mode === 'auto'
-        ? 'Downloading automatically...'
-        : `Check the matches below${weakMatches ? ` (${weakMatches} need a look)` : ''}, then press Download.`
-    );
-
     if (state.opt.mode === 'auto') {
-      await downloadSelected();
+      if (state.rows.some((row) => row.on)) {
+        setMessage('Downloading automatically...');
+        await downloadSelected();
+      } else {
+        setMessage('No confident matches were found. Review the results and select songs to download.');
+      }
+    } else {
+      setMessage(`Check the matches below${weakMatches ? ` (${weakMatches} need a look)` : ''}, then press Download.`);
     }
   } catch (error) {
     const isAbort = error.name === 'AbortError';
@@ -353,10 +376,6 @@ const downloadSelected = async () => {
 
   try {
     const response = await post('/api/download', { name: state.name, items, format: state.opt.fmt, quality: 192 }, state.ctl.signal);
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
     await streamEvents(response, (event) => {
       if (event.type === 'folder') {
         state.folder = event.folder;
