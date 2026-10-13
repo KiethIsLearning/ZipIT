@@ -67,6 +67,15 @@ async function installMissing(missing) {
   }
   if (!/^y(es)?$/i.test(answer.trim())) return;
 
+  if (process.platform === 'linux') {
+    console.log('\nRefreshing the apt package index...');
+    const update = spawnSync('sudo', ['apt-get', 'update'], { stdio: 'inherit' });
+    if (update.error || update.status !== 0) {
+      console.error('Package index update failed. Install the missing tools manually using the commands above.');
+      return;
+    }
+  }
+
   for (const tool of missing) {
     if (tool.name === 'Node.js') continue;
     const platform = process.platform;
@@ -80,20 +89,9 @@ async function installMissing(missing) {
       args = ['install', tool.name];
     } else if (platform === 'linux') {
       command = 'sudo';
-      args = tool.name === 'yt-dlp'
-        ? ['apt-get', 'update']
-        : ['apt-get', 'install', '-y', 'ffmpeg'];
+      args = ['apt-get', 'install', '-y', tool.name];
     }
     if (!command) continue;
-
-    if (platform === 'linux' && tool.name === 'yt-dlp') {
-      const update = spawnSync(command, args, { stdio: 'inherit' });
-      if (update.status !== 0) {
-        console.error('Package index update failed; yt-dlp was not installed.');
-        continue;
-      }
-      args = ['apt-get', 'install', '-y', 'yt-dlp'];
-    }
     console.log(`\nInstalling ${tool.name}...`);
     const result = spawnSync(command, args, { stdio: 'inherit', windowsHide: true });
     if (result.error || result.status !== 0) console.error(`Installation failed for ${tool.name}. Run the command above manually.`);

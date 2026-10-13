@@ -32,6 +32,7 @@ test('creates safe bounded file-name segments while retaining Unicode', () => {
   assert.equal(safe('../Björk: Jóga?*'), 'Björk Jóga');
   assert.equal(Array.from(safe('x'.repeat(500))).length, 80);
   assert.equal(safe('...'), 'untitled');
+  assert.equal(safe('CON'), '_CON');
 });
 
 test('scores exact artist matches and penalizes unwanted versions', () => {

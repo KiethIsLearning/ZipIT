@@ -10,27 +10,33 @@ const PUBLIC = path.join(ROOT, 'public');
 const ORIGINS = [`http://${HOST}:${PORT}`];
 const have = (c, a) => { const r = spawnSync(c, a, { stdio: 'ignore', timeout: 5000 }); return !r.error && r.status === 0; };
 const clean = s => String(s ?? '').replace(/[\x00-\x1f\u007f\u00a0]/g, ' ').replace(/\s+/g, ' ').trim();
-const safe = s => Array.from(clean(s).replace(/[<>:"/\\|?*%]/g, '').replace(/\s+/g, ' ').replace(/^[ .]+|[ .]+$/g, '')).slice(0, 80).join('').replace(/[ .]+$/g, '') || 'untitled';
+const safe = s => {
+  const name = Array.from(clean(s).replace(/[<>:"/\\|?*%]/g, '').replace(/\s+/g, ' ').replace(/^[ .]+|[ .]+$/g, ''))
+    .slice(0, 80).join('').replace(/[ .]+$/g, '') || 'untitled';
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ? `_${name}` : name;
+};
 const TYPES = { '.mp3': 'audio/mpeg', '.flac': 'audio/flac' };
 const BAD = ['live', 'cover', 'remix', 'karaoke', 'reaction', 'slowed', 'sped up', '8d', 'nightcore', 'instrumental', 'acoustic', 'reverb'];
 const MAX_TRACKS = 1000, MAX_BODY_BYTES = 1024 * 1024, MAX_PROCESS_OUTPUT = 32 * 1024 * 1024;
 const ALLOWED_HOSTS = ['spotify.com', 'deezer.com', 'youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com', 'bandcamp.com', 'mixcloud.com', 'apple.com'];
 const SEARCH_HOSTS = ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com'];
+const DIRECT_HOSTS = [...SEARCH_HOSTS, 'bandcamp.com', 'mixcloud.com'];
 let downloadInProgress = false;
 const json = (res, o, c = 200) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
 const readBody = req => new Promise((resolve, reject) => {
   const chunks = [];
-  let size = 0;
+  let size = 0, tooLarge = false;
   req.on('data', chunk => {
     size += chunk.length;
     if (size > MAX_BODY_BYTES) {
-      reject(Error('Request body is too large (maximum 1 MB).'));
-      req.destroy();
-      return;
+      tooLarge = true;
+    } else if (!tooLarge) {
+      chunks.push(chunk);
     }
-    chunks.push(chunk);
   });
-  req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+  req.on('end', () => tooLarge
+    ? reject(Object.assign(Error('Request body is too large (maximum 1 MB).'), { statusCode: 413 }))
+    : resolve(Buffer.concat(chunks).toString('utf8')));
   req.on('error', reject);
 });
 const isHost = (host, domains) => domains.some(domain => host === domain || host.endsWith(`.${domain}`));
@@ -80,7 +86,7 @@ const norm = t => {
     album: clean(t.album).slice(0, 500),
     duration: Number.isFinite(Number(t.duration)) && Number(t.duration) > 0 ? Number(t.duration) : null,
     direct: t.direct && typeof t.direct === 'object' && typeof t.direct.url === 'string'
-      ? { ...t.direct, url: validateUrl(t.direct.url).href }
+      ? { ...t.direct, url: validateUrl(t.direct.url, DIRECT_HOSTS).href }
       : undefined
   };
 };
@@ -140,12 +146,25 @@ async function deezer(u) {
   const [, t, id] = u.match(/deezer\.com\/(?:\w+\/)?(playlist|album|track)\/(\d+)/) || [];
   if (!id) throw Error('Unrecognised Deezer link');
   const d = await get(`https://api.deezer.com/${t}/${id}`, true);
-  const list = t === 'track' ? [d] : (await get(`https://api.deezer.com/${t}/${id}/tracks?limit=500`, true)).data;
-  return { name: d.title || 'Deezer', tracks: list.slice(0, MAX_TRACKS).map(x => ({ title: x.title, artist: x.artist?.name || '', album: x.album?.title || '', duration: x.duration })) };
+  if (d.error) throw Error(d.error.message || 'Deezer could not read that link.');
+  const list = [];
+  if (t === 'track') {
+    list.push(d);
+  } else {
+    let next = `https://api.deezer.com/${t}/${id}/tracks?limit=100`;
+    while (next && list.length < MAX_TRACKS) {
+      const page = await get(next, true);
+      if (page.error) throw Error(page.error.message || 'Deezer could not read that playlist.');
+      if (!Array.isArray(page.data)) throw Error('Deezer returned an invalid track list.');
+      list.push(...page.data.slice(0, MAX_TRACKS - list.length));
+      next = typeof page.next === 'string' && list.length < MAX_TRACKS ? page.next : '';
+    }
+  }
+  return { name: d.title || 'Deezer', tracks: list.map(x => ({ title: x.title, artist: x.artist?.name || '', album: x.album?.title || '', duration: x.duration })) };
 }
 
 async function direct(u, kids) {                  // YouTube, SoundCloud, Bandcamp, Mixcloud... are already sources
-  const r = await yt(['-J', '--flat-playlist', '--no-warnings', u], kids);
+  const r = await yt(['-J', '--flat-playlist', '--playlist-end', String(MAX_TRACKS), '--no-warnings', u], kids);
   if (r.code) throw Error((r.err.trim().split('\n').pop() || 'Could not read that link').slice(0, 200));
   const j = JSON.parse(r.out);
   return { name: j.title || 'Playlist', tracks: (j.entries || [j]).filter(e => e && (e.url || e.webpage_url)).map(e => {
@@ -233,7 +252,7 @@ async function dl(b, { kids, out, dead }) {
     if (!item || !Number.isInteger(item.id) || item.id < 0 || item.id >= MAX_TRACKS || seenIds.has(item.id)) throw Error('Selected song data is invalid.');
     seenIds.add(item.id);
     const track = norm(item);
-    return { ...track, id: item.id, url: validateUrl(item.url, SEARCH_HOSTS).href };
+    return { ...track, id: item.id, url: validateUrl(item.url, DIRECT_HOSTS).href };
   });
   const dir = path.join(DL, safe(b.name || 'Playlist'));
   fs.mkdirSync(DL, { recursive: true });
@@ -345,7 +364,7 @@ function startServer() {
         if (req.headers.origin && !ORIGINS.includes(req.headers.origin)) { res.writeHead(403); return res.end(); }
         let body;
         try { body = JSON.parse(await readBody(req)); }
-        catch (error) { return json(res, { error: error.message === 'Unexpected end of JSON input' ? 'Bad request' : error.message }, 400); }
+        catch (error) { return json(res, { error: error.message === 'Unexpected end of JSON input' ? 'Bad request' : error.message }, error.statusCode || 400); }
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, { error: 'Bad request' }, 400);
         if (route === '/api/resolve') {
           if (typeof body.input !== 'string' || !body.input.trim()) return json(res, { error: 'Enter a link or at least one song.' }, 400);
